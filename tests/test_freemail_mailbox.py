@@ -65,6 +65,64 @@ class FreemailMailboxTests(unittest.TestCase):
         self.assertEqual(code, "222222")
         self.assertEqual(mailbox._session.get.call_count, 2)
 
+    def test_get_email_prefers_configured_domain_index(self):
+        mailbox = create_mailbox(
+            "freemail",
+            extra={
+                "freemail_api_url": "https://freemail.example",
+                "freemail_domain": "target.example",
+            },
+        )
+        mailbox._session = mock.Mock()
+        mailbox._session.get.side_effect = [
+            _response(["fallback.example", "target.example"]),
+            _response({"email": "demo@target.example"}),
+        ]
+
+        account = mailbox.get_email()
+
+        self.assertEqual(account.email, "demo@target.example")
+        self.assertEqual(mailbox._session.get.call_count, 2)
+        _, kwargs = mailbox._session.get.call_args
+        self.assertEqual(kwargs.get("params"), {"domainIndex": 1})
+
+    def test_get_email_without_domain_does_not_pass_domain_index(self):
+        mailbox = create_mailbox(
+            "freemail",
+            extra={
+                "freemail_api_url": "https://freemail.example",
+            },
+        )
+        mailbox._session = mock.Mock()
+        mailbox._session.get.return_value = _response({"email": "demo@random.example"})
+
+        account = mailbox.get_email()
+
+        self.assertEqual(account.email, "demo@random.example")
+        self.assertEqual(mailbox._session.get.call_count, 1)
+        _, kwargs = mailbox._session.get.call_args
+        self.assertEqual(kwargs.get("params"), {})
+
+    def test_get_email_domain_list_supports_object_items(self):
+        mailbox = create_mailbox(
+            "freemail",
+            extra={
+                "freemail_api_url": "https://freemail.example",
+                "freemail_domain": "target.example",
+            },
+        )
+        mailbox._session = mock.Mock()
+        mailbox._session.get.side_effect = [
+            _response({"domains": [{"domain": "fallback.example"}, {"domain": "target.example"}]}),
+            _response({"email": "demo@target.example"}),
+        ]
+
+        account = mailbox.get_email()
+
+        self.assertEqual(account.email, "demo@target.example")
+        _, kwargs = mailbox._session.get.call_args
+        self.assertEqual(kwargs.get("params"), {"domainIndex": 1})
+
 
 def _response(payload):
     response = mock.Mock()

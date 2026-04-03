@@ -2,6 +2,7 @@
 
 import json
 import random
+import threading
 import time
 
 from abc import ABC, abstractmethod
@@ -223,6 +224,30 @@ def create_mailbox(
             domain=extra.get("skymail_domain", ""),
             proxy=proxy,
         )
+    elif provider == "cloudmail":
+        timeout_raw = extra.get("cloudmail_timeout", extra.get("timeout", 30))
+        try:
+            timeout_value = int(timeout_raw)
+        except (TypeError, ValueError):
+            timeout_value = 30
+        return CloudMailMailbox(
+            api_base=extra.get("cloudmail_api_base")
+            or extra.get("base_url")
+            or "",
+            admin_email=extra.get("cloudmail_admin_email")
+            or extra.get("admin_email")
+            or "",
+            admin_password=extra.get("cloudmail_admin_password")
+            or extra.get("admin_password")
+            or extra.get("api_key")
+            or "",
+            domain=extra.get("cloudmail_domain") or extra.get("domain") or "",
+            subdomain=extra.get("cloudmail_subdomain")
+            or extra.get("subdomain")
+            or "",
+            timeout=timeout_value,
+            proxy=proxy,
+        )
     elif provider == "duckmail":
         return DuckMailMailbox(
             api_url=(extra.get("duckmail_api_url") or "https://www.duckmail.sbs"),
@@ -240,6 +265,7 @@ def create_mailbox(
             admin_token=extra.get("freemail_admin_token", ""),
             username=extra.get("freemail_username", ""),
             password=extra.get("freemail_password", ""),
+            domain=extra.get("freemail_domain", ""),
             proxy=proxy,
         )
     elif provider == "moemail":
@@ -709,6 +735,339 @@ class SkyMailMailbox(BaseMailbox):
                     code = self._safe_extract(content, code_pattern)
                     if code:
                         self._log(f"[SkyMail] 命中验证码: {code}")
+                        return code
+            except Exception:
+                pass
+            return None
+
+        return self._run_polling_wait(
+            timeout=timeout,
+            poll_interval=3,
+            poll_once=poll_once,
+        )
+
+
+class CloudMailMailbox(BaseMailbox):
+    """CloudMail 自建邮箱服务（genToken + emailList）"""
+
+    _token_lock = threading.Lock()
+    _token_cache: dict[str, tuple[str, float]] = {}
+    _seen_ids_lock = threading.Lock()
+    _seen_ids: dict[str, set[str]] = {}
+
+    def __init__(
+        self,
+        api_base: str,
+        admin_email: str,
+        admin_password: str,
+        domain: Any = "",
+        subdomain: str = "",
+        timeout: int = 30,
+        proxy: str = None,
+    ):
+        self.api = str(api_base or "").rstrip("/")
+        self.admin_email = str(admin_email or "").strip()
+        self.admin_password = str(admin_password or "").strip()
+        self.domain = domain
+        self.subdomain = str(subdomain or "").strip()
+        self.timeout = max(int(timeout or 30), 5)
+        self.proxy = build_requests_proxy_config(proxy)
+
+    @staticmethod
+    def _extract_domain_from_url(url: str) -> str:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(str(url or ""))
+        host = (parsed.netloc or parsed.path.split("/")[0] or "").strip()
+        if ":" in host:
+            host = host.split(":", 1)[0].strip()
+        return host
+
+    @staticmethod
+    def _normalize_domain(value: str) -> str:
+        domain = str(value or "").strip().lstrip("@")
+        if "://" in domain:
+            domain = CloudMailMailbox._extract_domain_from_url(domain)
+        return domain.strip()
+
+    def _domain_candidates(self) -> list[str]:
+        candidates: list[str] = []
+
+        if isinstance(self.domain, (list, tuple, set)):
+            iterable = self.domain
+        else:
+            raw = str(self.domain or "").strip()
+            parsed = None
+            if raw.startswith("[") and raw.endswith("]"):
+                try:
+                    parsed = json.loads(raw)
+                except Exception:
+                    parsed = None
+            if isinstance(parsed, list):
+                iterable = parsed
+            elif raw:
+                normalized = (
+                    raw.replace(";", "\n")
+                    .replace(",", "\n")
+                    .replace("|", "\n")
+                    .splitlines()
+                )
+                iterable = [item for item in normalized if item]
+            else:
+                iterable = []
+
+        for item in iterable:
+            normalized = self._normalize_domain(item)
+            if normalized:
+                candidates.append(normalized)
+
+        if not candidates:
+            inferred = self._normalize_domain(self._extract_domain_from_url(self.api))
+            if inferred:
+                candidates.append(inferred)
+        return candidates
+
+    def _resolve_admin_email(self) -> str:
+        if self.admin_email:
+            return self.admin_email
+        domains = self._domain_candidates()
+        if domains:
+            return f"admin@{domains[0]}"
+        return "admin@example.com"
+
+    def _cache_key(self) -> str:
+        return f"{self.api}|{self._resolve_admin_email()}|{self.admin_password}"
+
+    def _ensure_config(self) -> None:
+        if not self.api or not self.admin_password:
+            raise RuntimeError(
+                "CloudMail 未配置完整：请设置 cloudmail_api_base 与 cloudmail_admin_password"
+            )
+
+    def _headers(self, token: str = "") -> dict:
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+        }
+        if token:
+            headers["authorization"] = token
+        return headers
+
+    def _generate_token(self) -> str:
+        import requests
+
+        self._ensure_config()
+        payload = {
+            "email": self._resolve_admin_email(),
+            "password": self.admin_password,
+        }
+        r = requests.post(
+            f"{self.api}/api/public/genToken",
+            json=payload,
+            headers=self._headers(),
+            proxies=self.proxy,
+            timeout=self.timeout,
+        )
+        if r.status_code != 200:
+            raise RuntimeError(
+                f"CloudMail 生成 token 失败: {r.status_code} {str(r.text or '')[:200]}"
+            )
+
+        try:
+            data = r.json()
+        except Exception:
+            data = {}
+        if data.get("code") != 200:
+            raise RuntimeError(f"CloudMail 生成 token 失败: {data}")
+        token = ((data.get("data") or {}).get("token") or "").strip()
+        if not token:
+            raise RuntimeError("CloudMail 生成 token 失败: 响应未返回 token")
+        return token
+
+    def _get_token(self, *, force_refresh: bool = False) -> str:
+        cache_key = self._cache_key()
+        now = time.time()
+        with CloudMailMailbox._token_lock:
+            if not force_refresh:
+                cached = CloudMailMailbox._token_cache.get(cache_key)
+                if cached and now < cached[1]:
+                    return cached[0]
+
+            token = self._generate_token()
+            CloudMailMailbox._token_cache[cache_key] = (token, now + 3600)
+            return token
+
+    def _list_mails(self, email: str, *, retry_auth: bool = True) -> list:
+        import requests
+
+        token = self._get_token()
+        payload = {
+            "toEmail": email,
+            "timeSort": "desc",
+        }
+        r = requests.post(
+            f"{self.api}/api/public/emailList",
+            json=payload,
+            headers=self._headers(token),
+            proxies=self.proxy,
+            timeout=self.timeout,
+        )
+        if r.status_code == 401 and retry_auth:
+            token = self._get_token(force_refresh=True)
+            r = requests.post(
+                f"{self.api}/api/public/emailList",
+                json=payload,
+                headers=self._headers(token),
+                proxies=self.proxy,
+                timeout=self.timeout,
+            )
+        if r.status_code != 200:
+            return []
+
+        try:
+            data = r.json()
+        except Exception:
+            data = {}
+        if data.get("code") != 200:
+            return []
+        return data.get("data") or []
+
+    def _gen_prefix(self) -> str:
+        import random
+        import string
+
+        first = random.choice(string.ascii_lowercase)
+        rest = "".join(random.choices(string.ascii_lowercase + string.digits, k=9))
+        return first + rest
+
+    def _build_email(self) -> str:
+        domains = self._domain_candidates()
+        if not domains:
+            raise RuntimeError("CloudMail 未配置可用域名")
+        domain = random.choice(domains)
+        if self.subdomain:
+            domain = f"{self.subdomain}.{domain}"
+        return f"{self._gen_prefix()}@{domain}"
+
+    @staticmethod
+    def _parse_message_timestamp(message: dict) -> Optional[float]:
+        from datetime import datetime
+
+        keys = [
+            "time",
+            "date",
+            "created",
+            "createdAt",
+            "created_at",
+            "receivedAt",
+            "received_at",
+            "sendTime",
+            "timestamp",
+        ]
+        for key in keys:
+            value = message.get(key)
+            if value in (None, ""):
+                continue
+            if isinstance(value, (int, float)):
+                numeric = float(value)
+                return numeric / 1000 if numeric > 10_000_000_000 else numeric
+            text = str(value).strip()
+            if not text:
+                continue
+            try:
+                numeric = float(text)
+                return numeric / 1000 if numeric > 10_000_000_000 else numeric
+            except (TypeError, ValueError):
+                pass
+            try:
+                return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _mail_id(message: dict, index: int = 0) -> str:
+        for key in ("emailId", "id", "mailId", "messageId"):
+            value = message.get(key)
+            if value not in (None, ""):
+                return str(value)
+        digest = (
+            str(message.get("date") or message.get("time") or "")
+            + "|"
+            + str(message.get("subject") or "")
+        )
+        return f"idx-{index}-{digest}"
+
+    def _remember_seen_id(self, email: str, message_id: str) -> None:
+        with CloudMailMailbox._seen_ids_lock:
+            CloudMailMailbox._seen_ids.setdefault(email, set()).add(message_id)
+
+    def _load_seen_ids(self, email: str) -> set[str]:
+        with CloudMailMailbox._seen_ids_lock:
+            return set(CloudMailMailbox._seen_ids.get(email, set()))
+
+    def get_email(self) -> MailboxAccount:
+        self._ensure_config()
+        email = self._build_email()
+        self._log(f"[CloudMail] 生成邮箱: {email}")
+        return MailboxAccount(email=email, account_id=email)
+
+    def get_current_ids(self, account: MailboxAccount) -> set:
+        target = account.account_id or account.email
+        try:
+            mails = self._list_mails(target)
+            return {self._mail_id(msg, idx) for idx, msg in enumerate(mails)}
+        except Exception:
+            return set()
+
+    def wait_for_code(
+        self,
+        account: MailboxAccount,
+        keyword: str = "",
+        timeout: int = 120,
+        before_ids: set = None,
+        code_pattern: str = None,
+        **kwargs,
+    ) -> str:
+        target = account.account_id or account.email
+        seen = set(before_ids or set())
+        seen.update(self._load_seen_ids(target))
+        otp_sent_at = kwargs.get("otp_sent_at")
+        exclude_codes = {
+            str(code).strip()
+            for code in (kwargs.get("exclude_codes") or set())
+            if str(code or "").strip()
+        }
+
+        def poll_once() -> Optional[str]:
+            try:
+                mails = self._list_mails(target)
+                for idx, msg in enumerate(mails):
+                    mid = self._mail_id(msg, idx)
+                    if mid in seen:
+                        continue
+                    seen.add(mid)
+                    self._remember_seen_id(target, mid)
+
+                    msg_ts = self._parse_message_timestamp(msg)
+                    if otp_sent_at and msg_ts and msg_ts < float(otp_sent_at):
+                        continue
+
+                    content = " ".join(
+                        [
+                            str(msg.get("subject") or ""),
+                            str(msg.get("content") or ""),
+                            str(msg.get("text") or ""),
+                            str(msg.get("html") or ""),
+                        ]
+                    )
+                    if keyword and keyword.lower() not in content.lower():
+                        continue
+                    code = self._safe_extract(content, code_pattern)
+                    if code and code in exclude_codes:
+                        continue
+                    if code:
+                        self._log(f"[CloudMail] 命中验证码: {code}")
                         return code
             except Exception:
                 pass
@@ -2376,15 +2735,18 @@ class FreemailMailbox(BaseMailbox):
         admin_token: str = "",
         username: str = "",
         password: str = "",
+        domain: str = "",
         proxy: str = None,
     ):
         self.api = api_url.rstrip("/")
         self.admin_token = admin_token
         self.username = username
         self.password = password
+        self.domain = str(domain or "").strip().lstrip("@")
         self.proxy = build_requests_proxy_config(proxy)
         self._session = None
         self._email = None
+        self._domains = None
 
     def _get_session(self):
         import requests
@@ -2405,14 +2767,73 @@ class FreemailMailbox(BaseMailbox):
     def get_email(self) -> MailboxAccount:
         if not self._session:
             self._get_session()
-        import requests
 
-        r = self._session.get(f"{self.api}/api/generate", timeout=15)
+        target_domain = self.domain
+        domain_index = 0
+        if target_domain:
+            domains = self._ensure_domains()
+            if domains:
+                lookup = str(target_domain).lower()
+                for idx, domain in enumerate(domains):
+                    if str(domain or "").strip().lower() == lookup:
+                        domain_index = idx
+                        break
+
+        params = {"domainIndex": domain_index} if target_domain else {}
+        r = self._session.get(f"{self.api}/api/generate", params=params, timeout=15)
         data = r.json()
-        email = data.get("email", "")
+        email = str(data.get("email", "") or "")
+        if target_domain and email and "@" in email:
+            actual_domain = email.split("@", 1)[1].strip().lower()
+            if actual_domain != target_domain.lower():
+                self._log(
+                    f"[Freemail] 指定域名 {target_domain} 未命中，实际返回 {actual_domain}"
+                )
+
         self._email = email
         print(f"[Freemail] 生成邮箱: {email}")
         return MailboxAccount(email=email, account_id=email)
+
+    def _ensure_domains(self) -> list:
+        if self._domains is not None:
+            return self._domains
+        self._domains = []
+        if not self._session:
+            self._get_session()
+        try:
+            r = self._session.get(f"{self.api}/api/domains", timeout=15)
+            payload = r.json()
+            normalized = []
+            def _append_domain(value):
+                domain = str(value or "").strip().lstrip("@")
+                if domain and domain not in normalized:
+                    normalized.append(domain)
+            if isinstance(payload, list):
+                for item in payload:
+                    if isinstance(item, dict):
+                        _append_domain(
+                            item.get("domain")
+                            or item.get("name")
+                            or item.get("value")
+                        )
+                    else:
+                        _append_domain(item)
+            elif isinstance(payload, dict):
+                candidates = payload.get("domains") or payload.get("data") or []
+                if isinstance(candidates, list):
+                    for item in candidates:
+                        if isinstance(item, dict):
+                            _append_domain(
+                                item.get("domain")
+                                or item.get("name")
+                                or item.get("value")
+                            )
+                        else:
+                            _append_domain(item)
+            self._domains = normalized
+        except Exception:
+            self._domains = []
+        return self._domains
 
     def get_current_ids(self, account: MailboxAccount) -> set:
         try:

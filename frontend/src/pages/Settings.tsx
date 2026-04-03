@@ -22,6 +22,7 @@ const SELECT_FIELDS: Record<string, { label: string; value: string }[]> = {
     { label: 'Laoudo（固定邮箱）', value: 'laoudo' },
     { label: 'TempMail.lol（自动生成）', value: 'tempmail_lol' },
     { label: 'SkyMail（CloudMail 接口）', value: 'skymail' },
+    { label: 'CloudMail（genToken 口令模式）', value: 'cloudmail' },
     { label: 'DuckMail（自动生成）', value: 'duckmail' },
     { label: 'MoeMail (sall.cc)', value: 'moemail' },
     { label: 'YYDS Mail / MaliAPI', value: 'maliapi' },
@@ -95,6 +96,7 @@ const TAB_ITEMS = [
           { key: 'freemail_admin_token', label: '管理员令牌', secret: true },
           { key: 'freemail_username', label: '用户名（可选）' },
           { key: 'freemail_password', label: '密码（可选）', secret: true },
+          { key: 'freemail_domain', label: '邮箱域名（可选）', placeholder: 'example.com' },
         ],
       },
       {
@@ -112,6 +114,18 @@ const TAB_ITEMS = [
           { key: 'skymail_api_base', label: 'API Base', placeholder: 'https://api.skymail.ink' },
           { key: 'skymail_token', label: 'Authorization Token', secret: true },
           { key: 'skymail_domain', label: '邮箱域名', placeholder: 'mail.example.com' },
+        ],
+      },
+      {
+        title: 'CloudMail',
+        desc: 'CloudMail 口令模式（genToken + emailList）',
+        fields: [
+          { key: 'cloudmail_api_base', label: 'API Base', placeholder: 'https://cloudmail.example.com' },
+          { key: 'cloudmail_admin_email', label: '管理员邮箱（可选）', placeholder: 'admin@example.com' },
+          { key: 'cloudmail_admin_password', label: '管理员密码', secret: true },
+          { key: 'cloudmail_domain', label: '邮箱域名（可选）', placeholder: 'mail.example.com,mail2.example.com' },
+          { key: 'cloudmail_subdomain', label: '子域名（可选）', placeholder: 'pool-a' },
+          { key: 'cloudmail_timeout', label: '请求超时秒数', placeholder: '30' },
         ],
       },
       {
@@ -1070,6 +1084,9 @@ export default function Settings() {
       }
       if (!data.luckmail_base_url) {
         data.luckmail_base_url = 'https://mails.luckyous.com/'
+      }
+      if (!data.cloudmail_timeout) {
+        data.cloudmail_timeout = 30
       }
       data.cfworker_domains = parseStoredDomainList(data.cfworker_domains)
       data.cfworker_enabled_domains = parseStoredDomainList(data.cfworker_enabled_domains)

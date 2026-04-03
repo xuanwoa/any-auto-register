@@ -48,6 +48,12 @@ export default function RegisterTaskPage() {
         skymail_api_base: cfg.skymail_api_base || 'https://api.skymail.ink',
         skymail_token: cfg.skymail_token || '',
         skymail_domain: cfg.skymail_domain || '',
+        cloudmail_api_base: cfg.cloudmail_api_base || '',
+        cloudmail_admin_email: cfg.cloudmail_admin_email || '',
+        cloudmail_admin_password: cfg.cloudmail_admin_password || '',
+        cloudmail_domain: cfg.cloudmail_domain || '',
+        cloudmail_subdomain: cfg.cloudmail_subdomain || '',
+        cloudmail_timeout: cfg.cloudmail_timeout || 30,
         laoudo_auth: cfg.laoudo_auth || '',
         laoudo_email: cfg.laoudo_email || '',
         laoudo_account_id: cfg.laoudo_account_id || '',
@@ -68,6 +74,7 @@ export default function RegisterTaskPage() {
         freemail_admin_token: cfg.freemail_admin_token || '',
         freemail_username: cfg.freemail_username || '',
         freemail_password: cfg.freemail_password || '',
+        freemail_domain: cfg.freemail_domain || '',
         cfworker_api_url: cfg.cfworker_api_url || '',
         cfworker_admin_token: cfg.cfworker_admin_token || '',
         cfworker_custom_auth: cfg.cfworker_custom_auth || '',
@@ -111,6 +118,12 @@ export default function RegisterTaskPage() {
       skymail_api_base: values.skymail_api_base,
       skymail_token: values.skymail_token,
       skymail_domain: values.skymail_domain,
+      cloudmail_api_base: values.cloudmail_api_base,
+      cloudmail_admin_email: values.cloudmail_admin_email,
+      cloudmail_admin_password: values.cloudmail_admin_password,
+      cloudmail_domain: values.cloudmail_domain,
+      cloudmail_subdomain: values.cloudmail_subdomain,
+      cloudmail_timeout: values.cloudmail_timeout,
       duckmail_api_url: values.duckmail_api_url,
       duckmail_provider_url: values.duckmail_provider_url,
       duckmail_bearer: values.duckmail_bearer,
@@ -118,6 +131,7 @@ export default function RegisterTaskPage() {
       freemail_admin_token: values.freemail_admin_token,
       freemail_username: values.freemail_username,
       freemail_password: values.freemail_password,
+      freemail_domain: values.freemail_domain,
       cfworker_api_url: values.cfworker_api_url,
       cfworker_admin_token: values.cfworker_admin_token,
       cfworker_custom_auth: values.cfworker_custom_auth,
@@ -207,6 +221,7 @@ export default function RegisterTaskPage() {
         captcha_solver: 'yescaptcha',
         mail_provider: 'luckmail',
         gptmail_base_url: 'https://mail.chatgpt.org.uk',
+        cloudmail_timeout: 30,
         count: 1,
         concurrency: 1,
         register_delay_seconds: 0,
@@ -274,6 +289,7 @@ export default function RegisterTaskPage() {
                 { value: 'moemail', label: 'MoeMail (sall.cc)' },
                 { value: 'tempmail_lol', label: 'TempMail.lol' },
                 { value: 'skymail', label: 'SkyMail (CloudMail)' },
+                { value: 'cloudmail', label: 'CloudMail (genToken)' },
                 { value: 'maliapi', label: 'YYDS Mail / MaliAPI' },
                 { value: 'gptmail', label: 'GPTMail' },
                 { value: 'opentrashmail', label: 'OpenTrashMail' },
@@ -294,6 +310,28 @@ export default function RegisterTaskPage() {
               </Form.Item>
               <Form.Item name="skymail_domain" label="邮箱域名">
                 <Input placeholder="mail.example.com" />
+              </Form.Item>
+            </>
+          )}
+          {mailProvider === 'cloudmail' && (
+            <>
+              <Form.Item name="cloudmail_api_base" label="API Base" rules={[{ required: true, message: '请输入 CloudMail API 地址' }]}>
+                <Input placeholder="https://cloudmail.example.com" />
+              </Form.Item>
+              <Form.Item name="cloudmail_admin_email" label="管理员邮箱（可选）" extra="留空自动使用 admin@域名">
+                <Input placeholder="admin@example.com" />
+              </Form.Item>
+              <Form.Item name="cloudmail_admin_password" label="管理员密码" rules={[{ required: true, message: '请输入 CloudMail 管理员密码' }]}>
+                <Input.Password placeholder="admin password" />
+              </Form.Item>
+              <Form.Item name="cloudmail_domain" label="邮箱域名（可选）" extra="支持单个域名，或逗号分隔多个域名">
+                <Input placeholder="mail.example.com,mail2.example.com" />
+              </Form.Item>
+              <Form.Item name="cloudmail_subdomain" label="子域名（可选）">
+                <Input placeholder="pool-a" />
+              </Form.Item>
+              <Form.Item name="cloudmail_timeout" label="请求超时秒数">
+                <InputNumber min={5} max={120} style={{ width: '100%' }} />
               </Form.Item>
             </>
           )}
@@ -400,6 +438,25 @@ export default function RegisterTaskPage() {
               </Form.Item>
               <Form.Item name="cfworker_fingerprint" label="Fingerprint (可选)">
                 <Input placeholder="cfb82279f..." />
+              </Form.Item>
+            </>
+          )}
+          {mailProvider === 'freemail' && (
+            <>
+              <Form.Item name="freemail_api_url" label="API URL" rules={[{ required: true, message: '请输入 Freemail API 地址' }]}>
+                <Input placeholder="https://mail.example.com" />
+              </Form.Item>
+              <Form.Item name="freemail_admin_token" label="管理员令牌（可选）">
+                <Input.Password placeholder="JWT_TOKEN" />
+              </Form.Item>
+              <Form.Item name="freemail_username" label="用户名（可选）">
+                <Input placeholder="admin" />
+              </Form.Item>
+              <Form.Item name="freemail_password" label="密码（可选）">
+                <Input.Password placeholder="password" />
+              </Form.Item>
+              <Form.Item name="freemail_domain" label="邮箱域名（可选）" extra="填写后会优先使用该域名生成邮箱">
+                <Input placeholder="example.com" />
               </Form.Item>
             </>
           )}
