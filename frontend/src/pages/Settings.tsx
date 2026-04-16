@@ -37,6 +37,7 @@ const SELECT_FIELDS: Record<string, { label: string; value: string }[]> = {
     { label: 'OpenTrashMail', value: 'opentrashmail' },
     { label: 'Freemail（自建 CF Worker）', value: 'freemail' },
     { label: 'CF Worker（自建域名）', value: 'cfworker' },
+    { label: 'iCloud 邮箱', value: 'icloud' },
   ],
   maliapi_auto_domain_strategy: [
     { label: 'balanced', value: 'balanced' },
@@ -177,6 +178,15 @@ const TAB_ITEMS = [
           { key: 'applemail_pool_dir', label: '邮箱池目录', placeholder: 'mail' },
           { key: 'applemail_pool_file', label: '当前邮箱池文件（可选）', placeholder: '留空则自动读取目录中最新文件' },
           { key: 'applemail_mailboxes', label: '轮询文件夹', placeholder: 'INBOX,Junk' },
+        ],
+      },
+      {
+        title: 'iCloud 邮箱',
+        desc: '使用 iCloud IMAP 及应用专用密码读取收件箱。可配置多个别名。',
+        fields: [
+          { key: 'icloud_imap_username', label: '主邮箱账号', placeholder: 'someone@icloud.com' },
+          { key: 'icloud_app_password', label: '应用专用密码', secret: true, placeholder: 'xxxx-xxxx-xxxx-xxxx' },
+          { key: 'icloud_aliases', label: '别名列表', type: 'textarea', placeholder: 'alias1@icloud.com\nalias2@icloud.com' },
         ],
       },
       {
@@ -400,7 +410,7 @@ interface FieldConfig {
   key: string
   label: string
   placeholder?: string
-  type?: 'select' | 'input' | 'boolean'
+  type?: 'select' | 'input' | 'boolean' | 'textarea'
   secret?: boolean
 }
 
@@ -431,6 +441,7 @@ const MAILBOX_SECTION_FIELD_KEY_BY_PROVIDER: Record<string, string> = {
   duckmail: 'duckmail_api_url',
   cfworker: 'cfworker_api_url',
   luckmail: 'luckmail_base_url',
+  icloud: 'icloud_imap_username',
 }
 
 const MAILBOX_SECTION_INDEX_BY_PROVIDER: Record<string, number> = {
@@ -589,6 +600,8 @@ function ConfigField({ field }: { field: FieldConfig }) {
         <Select options={options} style={{ width: '100%' }} />
       ) : isBooleanField ? (
         <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+      ) : field.type === 'textarea' ? (
+        <Input.TextArea placeholder={field.placeholder} autoSize={{ minRows: 2, maxRows: 6 }} />
       ) : field.secret ? (
         <Input.Password
           placeholder={field.placeholder}

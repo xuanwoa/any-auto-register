@@ -270,6 +270,9 @@ def create_mailbox(
             domain=extra.get("freemail_domain", ""),
             proxy=proxy,
         )
+    elif provider == "icloud":
+        from .mailbox_icloud import _create_icloud
+        return _create_icloud(extra, proxy)
     elif provider == "moemail":
         return MoeMailMailbox(
             api_url=extra.get("moemail_api_url", "https://sall.cc"),
