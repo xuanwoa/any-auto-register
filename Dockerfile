@@ -2,10 +2,13 @@
 
 FROM node:20-bookworm-slim AS frontend-builder
 
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+
 WORKDIR /app/frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN if [ -n "$NPM_REGISTRY" ]; then npm config set registry "$NPM_REGISTRY"; fi \
+    && npm ci
 
 COPY frontend/ ./
 RUN npm run build
@@ -15,10 +18,14 @@ FROM python:3.12-slim AS runtime
 
 ARG CAMOUFOX_VERSION=135.0.1
 ARG CAMOUFOX_RELEASE=beta.24
+ARG GO_VERSION=1.24.2
+ARG GO_DOWNLOAD_URL=https://golang.google.cn/dl/go${GO_VERSION}.linux-amd64.tar.gz
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
     HOST=0.0.0.0 \
     PORT=8000 \
     APP_CONDA_ENV=docker \
@@ -38,13 +45,13 @@ COPY scripts/install_camoufox.py /tmp/install_camoufox.py
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates \
         libgtk-3-0 libx11-xcb1 libasound2 xvfb xauth \
-    && curl -fsSL https://go.dev/dl/go1.24.2.linux-amd64.tar.gz | tar -C /usr/local -xz \
-    && curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && curl -fsSL "$GO_DOWNLOAD_URL" | tar -C /usr/local -xz \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/usr/local/go/bin:/root/.local/bin:${PATH}"
 
 RUN pip install --upgrade pip \
+    && pip install uv \
     && pip install -r requirements.txt \
     && installed=0 \
     && for attempt in 1 2 3; do \

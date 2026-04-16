@@ -116,6 +116,11 @@ app.include_router(outlook_router, prefix="/api")
 app.include_router(contribution_router, prefix="/api")
 
 
+@app.get("/api/health")
+def health_status():
+    return {"ok": True, "service": "account-manager-v2"}
+
+
 @app.get("/api/solver/status")
 def solver_status():
     from services.solver_manager import is_running

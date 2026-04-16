@@ -9,6 +9,11 @@ from pathlib import Path
 from platformdirs import user_cache_dir
 
 
+def _env_truthy(name: str, default: str = "0") -> bool:
+    value = os.environ.get(name, default)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def main() -> None:
     version = os.environ["CAMOUFOX_VERSION"]
     release = os.environ["CAMOUFOX_RELEASE"]
@@ -29,7 +34,6 @@ def main() -> None:
     tag = f"v{version}-{release}"
     asset_name = f"camoufox-{version}-{release}-lin.{arch}.zip"
     asset_url = f"https://github.com/daijro/camoufox/releases/download/{tag}/{asset_name}"
-    addon_url = "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi"
     install_dir = Path(user_cache_dir("camoufox"))
     temp_dir = Path(tempfile.mkdtemp(prefix="camoufox-install-"))
 
@@ -50,13 +54,21 @@ def main() -> None:
             encoding="utf-8",
         )
 
-        addon_dir = install_dir / "addons" / "UBO"
-        addon_dir.mkdir(parents=True, exist_ok=True)
-        addon_path = temp_dir / "ublock-origin.xpi"
-        print(f"Downloading default addon UBO: {addon_url}")
-        urllib.request.urlretrieve(addon_url, addon_path)
-        with zipfile.ZipFile(addon_path) as zf:
-            zf.extractall(addon_dir)
+        if _env_truthy("CAMOUFOX_DOWNLOAD_UBO", "0"):
+            addon_url = "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi"
+            addon_dir = install_dir / "addons" / "UBO"
+            addon_dir.mkdir(parents=True, exist_ok=True)
+            addon_path = temp_dir / "ublock-origin.xpi"
+            print(f"Downloading default addon UBO: {addon_url}")
+            try:
+                urllib.request.urlretrieve(addon_url, addon_path)
+                with zipfile.ZipFile(addon_path) as zf:
+                    zf.extractall(addon_dir)
+            except Exception as exc:
+                print(f"Skipping default addon UBO due to download/extract failure: {exc}")
+                shutil.rmtree(addon_dir, ignore_errors=True)
+        else:
+            print("Skipping default addon UBO download (CAMOUFOX_DOWNLOAD_UBO disabled)")
 
         for path in install_dir.rglob("*"):
             if path.is_dir():

@@ -6,6 +6,7 @@ services:
       args:
         CAMOUFOX_VERSION: ${CAMOUFOX_VERSION:-135.0.1}
         CAMOUFOX_RELEASE: ${CAMOUFOX_RELEASE:-beta.24}
+    image: any-auto-register-app:latest
     container_name: any-auto-register
     init: true
     restart: unless-stopped
@@ -22,9 +23,9 @@ services:
       SOLVER_BROWSER_TYPE: ${SOLVER_BROWSER_TYPE:-camoufox}
       PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-}
     ports:
-      - "8000:8000"
+      - "${APP_PORT_BIND:-18000}:8000"
       - "127.0.0.1:8889:8889"
-      - "${CLIPROXYAPI_PORT_BIND:-8317}:8317"
+      - "${CLIPROXYAPI_PORT_BIND:-18317}:8317"
       - "${GROK2API_PORT_BIND:-8011}:8011"
     volumes:
       - ${APP_RUNTIME_BIND:-./data}:/runtime

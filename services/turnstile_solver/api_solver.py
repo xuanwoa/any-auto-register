@@ -11,8 +11,10 @@ from quart import Quart, request, jsonify
 
 try:
     from camoufox.async_api import AsyncCamoufox
+    from camoufox import DefaultAddons
 except ImportError:
     AsyncCamoufox = None
+    DefaultAddons = None
 
 try:
     from patchright.async_api import async_playwright
@@ -179,7 +181,10 @@ class TurnstileAPIServer:
                 raise RuntimeError(
                     "当前浏览器模式需要 camoufox，但未安装。请执行: pip install camoufox && python -m camoufox fetch"
                 )
-            camoufox = AsyncCamoufox(headless=self.headless)
+            camoufox_kwargs = {"headless": self.headless}
+            if DefaultAddons is not None:
+                camoufox_kwargs["exclude_addons"] = [DefaultAddons.UBO]
+            camoufox = AsyncCamoufox(**camoufox_kwargs)
 
         browser_configs = []
         for _ in range(self.thread_count):
