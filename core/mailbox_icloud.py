@@ -5,7 +5,24 @@ import imaplib
 import email
 from email.header import decode_header
 import urllib.parse
-from core.base_mailbox import BaseMailbox, MailboxAccount, _extract_verification_link
+from core.base_mailbox import BaseMailbox, MailboxAccount
+
+def _extract_verification_link(text: str, keyword: str = "") -> str | None:
+    import re
+    # Extract URLs from text
+    urls = re.findall(r'https?://[^\s<>"\'()]+', text)
+    if not urls:
+        return None
+    if not keyword:
+        # If no keyword is provided, assume the first URL might be what we want,
+        # or maybe the last. Let's just return the first that seems like a link.
+        return urls[0]
+    
+    # If keyword is provided, find the first URL that contains it
+    for url in urls:
+        if keyword.lower() in url.lower():
+            return url
+    return None
 
 def _get_caller_platform() -> str:
     import inspect
